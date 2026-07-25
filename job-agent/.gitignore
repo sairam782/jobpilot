@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .env
+*.egg-info/
 logs/
 data/*.sqlite3
 data/vector_db/*

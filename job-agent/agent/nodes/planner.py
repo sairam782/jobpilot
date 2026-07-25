@@ -8,7 +8,6 @@ from pydantic_ai import Agent
 from agent.schemas import ActionType, AgentState, PlannerAction
 from config.settings import settings
 
-
 PLANNER_PROMPT = (
     Path(__file__).resolve().parents[2] / "prompts" / "planner.md"
 ).read_text(encoding="utf-8")
@@ -20,7 +19,7 @@ class PlannerAgent:
     def __init__(self) -> None:
         self.agent = Agent(
             model=settings.frontier_model,
-            result_type=PlannerAction,
+            output_type=PlannerAction,
             system_prompt=PLANNER_PROMPT,
         )
 
@@ -45,5 +44,5 @@ class PlannerAgent:
             ensure_ascii=True,
         )
         result = await self.agent.run(prompt)
-        state.action = result.data
+        state.action = result.output
         return state

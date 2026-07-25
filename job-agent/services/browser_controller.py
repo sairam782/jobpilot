@@ -4,14 +4,16 @@ import asyncio
 import random
 import re
 from pathlib import Path
+from typing import Self
 
 from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from agent.schemas import InteractiveElement, PageState, PlannerAction
 
-
-CAPTCHA_PATTERNS = re.compile(r"captcha|recaptcha|hcaptcha|verify you are human", re.I)
+CAPTCHA_PATTERNS = re.compile(
+    r"captcha|recaptcha|hcaptcha|verify you are human", re.IGNORECASE
+)
 
 
 class BrowserController:
@@ -25,7 +27,7 @@ class BrowserController:
         self.context: BrowserContext | None = None
         self.page: Page | None = None
 
-    async def __aenter__(self) -> "BrowserController":
+    async def __aenter__(self) -> Self:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self._playwright = await async_playwright().start()
         self.browser = await self._playwright.chromium.launch(headless=self.headless)
@@ -100,9 +102,7 @@ class BrowserController:
                 raise ValueError("upload action requires file path value")
             await page.locator(selector).first.set_input_files(action.value, timeout=10_000)
             filled[selector] = action.value
-        elif action.action == "extract":
-            return filled
-        elif action.action == "done":
+        elif action.action == "extract" or action.action == "done":
             return filled
         else:
             raise ValueError(f"Unsupported action: {action.action}")

@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    frontier_model: str = Field(default="gpt-4o", alias="FRONTIER_MODEL")
-    fast_model: str = Field(default="gpt-4o-mini", alias="FAST_MODEL")
+    frontier_model: str = Field(default="openai:gpt-4o", alias="FRONTIER_MODEL")
+    fast_model: str = Field(default="openai:gpt-4o-mini", alias="FAST_MODEL")
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
 
     require_approval: bool = Field(default=True, alias="REQUIRE_APPROVAL")

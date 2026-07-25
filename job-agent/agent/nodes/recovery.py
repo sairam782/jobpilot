@@ -8,7 +8,6 @@ from pydantic_ai import Agent
 from agent.schemas import ActionType, AgentState, PlannerAction
 from config.settings import settings
 
-
 RECOVERY_PROMPT = (
     Path(__file__).resolve().parents[2] / "prompts" / "recovery.md"
 ).read_text(encoding="utf-8")
@@ -20,7 +19,7 @@ class RecoveryEngine:
     def __init__(self) -> None:
         self.agent = Agent(
             model=settings.fast_model,
-            result_type=PlannerAction,
+            output_type=PlannerAction,
             system_prompt=RECOVERY_PROMPT,
         )
 
@@ -42,5 +41,5 @@ class RecoveryEngine:
             ensure_ascii=True,
         )
         result = await self.agent.run(prompt)
-        state.action = result.data
+        state.action = result.output
         return state

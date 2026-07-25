@@ -50,6 +50,7 @@ cp .env.example .env
 ```
 
 Set `OPENAI_API_KEY` in `.env`, replace `data/resume_expanded.txt` with your expanded resume, and update `config/target_config.json`.
+Pydantic-AI model names should include the provider prefix, for example `openai:gpt-4o` and `openai:gpt-4o-mini`.
 
 ## Run
 

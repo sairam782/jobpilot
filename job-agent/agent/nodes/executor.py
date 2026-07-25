@@ -31,7 +31,7 @@ class ExecutionAgent:
                 message=f"Executed {state.action.action}.",
                 filled_fields=filled,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Playwright raises several action-specific errors.
             error_text = f"{type(exc).__name__}: {exc}"
             state.errors.append(error_text)
             state.execution = ExecutionResult(
