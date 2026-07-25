@@ -1,0 +1,11 @@
+{
+  "resume_path": "data/resume_expanded.txt",
+  "target_titles": ["AI Engineer", "Automation Engineer", "Machine Learning Engineer"],
+  "locations": ["Remote", "New York, NY"],
+  "seniority": ["mid", "senior"],
+  "remote_preference": "remote_or_hybrid",
+  "exclusion_keywords": ["unpaid", "commission only", "door to door"],
+  "max_applies_per_day": 10,
+  "job_boards": [],
+  "direct_urls": []
+}
