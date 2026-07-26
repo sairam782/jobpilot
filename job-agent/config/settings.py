@@ -12,9 +12,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    frontier_model: str = Field(default="openai:gpt-4o", alias="FRONTIER_MODEL")
-    fast_model: str = Field(default="openai:gpt-4o-mini", alias="FAST_MODEL")
+    planner_model: str = Field(default="gpt-4o", alias="PLANNER_MODEL")
+    extraction_model: str = Field(default="gpt-4o-mini", alias="EXTRACTION_MODEL")
+    rag_model: str = Field(default="gpt-4o-mini", alias="RAG_MODEL")
+    frontier_model: str = Field(default="gpt-4o", alias="FRONTIER_MODEL")
+    fast_model: str = Field(default="gpt-4o-mini", alias="FAST_MODEL")
+    embedding_provider: str = Field(default="openai", alias="EMBEDDING_PROVIDER")
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
+    proxy_url: str | None = Field(default=None, alias="PROXY_URL")
+    stealth_mode: bool = Field(default=True, alias="STEALTH_MODE")
 
     require_approval: bool = Field(default=True, alias="REQUIRE_APPROVAL")
     dry_run: bool = Field(default=True, alias="DRY_RUN")

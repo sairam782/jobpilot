@@ -10,10 +10,36 @@ from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from agent.schemas import InteractiveElement, PageState, PlannerAction
+from config.settings import settings
 
 CAPTCHA_PATTERNS = re.compile(
     r"captcha|recaptcha|hcaptcha|verify you are human", re.IGNORECASE
 )
+USER_AGENTS = [
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+]
+VIEWPORTS = [
+    {"width": 1366, "height": 768},
+    {"width": 1440, "height": 900},
+    {"width": 1536, "height": 864},
+    {"width": 1600, "height": 900},
+]
+GEOLOCATIONS = [
+    {"latitude": 40.7128, "longitude": -74.0060, "accuracy": 50},
+    {"latitude": 37.7749, "longitude": -122.4194, "accuracy": 50},
+    {"latitude": 41.8781, "longitude": -87.6298, "accuracy": 50},
+]
 
 
 class BrowserController:
@@ -30,13 +56,30 @@ class BrowserController:
     async def __aenter__(self) -> Self:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self._playwright = await async_playwright().start()
-        self.browser = await self._playwright.chromium.launch(headless=self.headless)
+        launch_args = {
+            "headless": self.headless,
+            "args": ["--disable-blink-features=AutomationControlled"]
+            if settings.stealth_mode
+            else [],
+        }
+        if settings.proxy_url:
+            launch_args["proxy"] = {"server": settings.proxy_url}
+        self.browser = await self._playwright.chromium.launch(**launch_args)
+        context_options = {
+            "user_agent": random.choice(USER_AGENTS),
+            "viewport": random.choice(VIEWPORTS),
+            "geolocation": random.choice(GEOLOCATIONS),
+            "permissions": ["geolocation"],
+            "locale": "en-US",
+            "timezone_id": "America/New_York",
+        }
         self.context = await self.browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            )
+            **context_options,
         )
+        if settings.stealth_mode:
+            await self.context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            )
         self.page = await self.context.new_page()
         return self
 
@@ -62,9 +105,7 @@ class BrowserController:
         html = await page.content()
         title = await page.title()
         url = page.url
-        soup = BeautifulSoup(html, "html.parser")
-        text = soup.get_text(" ", strip=True)
-        summary = self._summarize_text(text)
+        summary, interactive_elements, text = self.compress_dom(html)
         screenshot_path = self.screenshots_dir / f"page-{abs(hash(url))}.png"
         await page.screenshot(path=str(screenshot_path), full_page=True)
 
@@ -72,11 +113,18 @@ class BrowserController:
             url=url,
             title=title,
             summary=summary,
-            interactive_elements=self._extract_interactive_elements(soup),
+            interactive_elements=interactive_elements,
             screenshot_path=str(screenshot_path),
             captcha_detected=bool(CAPTCHA_PATTERNS.search(text)),
             raw_text_sample=text[:1000],
         )
+
+    def compress_dom(self, html: str) -> tuple[str, list[InteractiveElement], str]:
+        """Compress raw HTML into a 150-word summary and interactive elements."""
+
+        soup = BeautifulSoup(html, "html.parser")
+        text = soup.get_text(" ", strip=True)
+        return self._summarize_text(text), self._extract_interactive_elements(soup), text
 
     async def execute(self, action: PlannerAction) -> dict[str, str]:
         """Execute one planner action with deterministic Playwright commands."""

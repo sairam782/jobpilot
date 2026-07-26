@@ -5,8 +5,8 @@ from pathlib import Path
 
 from pydantic_ai import Agent
 
+from agent.router import TaskType, select_model
 from agent.schemas import ActionType, AgentState, PlannerAction
-from config.settings import settings
 
 PLANNER_PROMPT = (
     Path(__file__).resolve().parents[2] / "prompts" / "planner.md"
@@ -18,7 +18,7 @@ class PlannerAgent:
 
     def __init__(self) -> None:
         self.agent = Agent(
-            model=settings.frontier_model,
+            model=select_model(TaskType.PLAN),
             output_type=PlannerAction,
             system_prompt=PLANNER_PROMPT,
         )
@@ -45,4 +45,5 @@ class PlannerAgent:
         )
         result = await self.agent.run(prompt)
         state.action = result.output
+        state.last_action = state.action
         return state

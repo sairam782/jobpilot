@@ -85,12 +85,16 @@ class AgentState(BaseModel):
 
     goal: str
     target_url: str | None = None
+    current_url: str | None = None
     page_state: PageState | None = None
     action: PlannerAction | None = None
+    last_action: PlannerAction | None = None
     execution: ExecutionResult | None = None
     validation: ValidationResult | None = None
     filled_fields: dict[str, str] = Field(default_factory=dict)
     answer_previews: list[str] = Field(default_factory=list)
+    audit_entries: list[str] = Field(default_factory=list)
+    recovery_attempts: int = 0
     iterations: int = 0
     errors: list[str] = Field(default_factory=list)
     done: bool = False

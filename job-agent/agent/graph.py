@@ -1,5 +1,7 @@
 """LangGraph state machine for the JobPilot application loop."""
 
+from typing import TypedDict
+
 from langgraph.graph import END, StateGraph
 
 from agent.nodes.executor import ExecutionAgent
@@ -10,6 +12,16 @@ from agent.nodes.recovery import RecoveryEngine
 from agent.nodes.validator import ValidatorAgent
 from agent.schemas import AgentState
 from services.browser_controller import BrowserController
+
+
+class JobPilotGraphState(TypedDict, total=False):
+    """TypedDict contract for core graph state fields."""
+
+    current_url: str
+    page_state: object
+    last_action: object
+    audit_entries: list[str]
+    recovery_attempts: int
 
 
 def build_graph(browser: BrowserController):
@@ -38,7 +50,11 @@ def build_graph(browser: BrowserController):
         _route_after_execute,
         {"validate": "validate", "recover": "recover"},
     )
-    graph.add_edge("recover", "execute")
+    graph.add_conditional_edges(
+        "recover",
+        _route_after_recovery,
+        {"execute": "execute", "end": END},
+    )
     graph.add_edge("validate", "remember")
     graph.add_conditional_edges(
         "remember",
@@ -51,13 +67,21 @@ def build_graph(browser: BrowserController):
 def _route_after_execute(state: AgentState) -> str:
     if state.execution and state.execution.success:
         return "validate"
-    if len(state.errors) <= 1:
+    if state.recovery_attempts < 2:
         return "recover"
     return "validate"
 
 
+def _route_after_recovery(state: AgentState) -> str:
+    if state.done or state.recovery_attempts >= 2:
+        return "end"
+    return "execute"
+
+
 def _route_after_memory(state: AgentState) -> str:
     if state.done or state.iterations >= 25:
+        return "end"
+    if state.recovery_attempts >= 2:
         return "end"
     if state.validation and state.validation.status in {"blocked", "error", "ready"}:
         return "end"

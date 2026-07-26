@@ -14,5 +14,6 @@ class ObserverAgent:
         """Observe page state via Playwright and BeautifulSoup compression."""
 
         state.page_state = await self.browser.observe()
+        state.current_url = state.page_state.url
         state.iterations += 1
         return state
