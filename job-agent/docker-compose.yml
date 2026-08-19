@@ -1,0 +1,29 @@
+services:
+  jobpilot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jobpilot:latest
+    container_name: jobpilot
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Safety-first defaults — override in `.env` when you are ready.
+      DRY_RUN: "true"
+      REQUIRE_APPROVAL: "true"
+      STOP_ON_CAPTCHA: "true"
+      MAX_APPLIES_PER_DAY: "10"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      LOG_FORMAT: "json"
+      LOG_LEVEL: "INFO"
+    env_file:
+      - .env
+    volumes:
+      - jobpilot_data:/app/data
+      - jobpilot_logs:/app/logs
+
+volumes:
+  jobpilot_data:
+  jobpilot_logs:

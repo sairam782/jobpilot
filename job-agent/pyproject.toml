@@ -1,6 +1,6 @@
 [project]
 name = "jobpilot"
-version = "0.1.0"
+version = "1.0.0"
 description = "Autonomous, safety-first job application agent."
 requires-python = ">=3.12"
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.9.2",
     "pydantic-ai>=0.0.13",
     "pydantic-settings>=2.6.0",
+    "pypdf>=5.0.0",
     "python-dotenv>=1.0.1",
     "rapidfuzz>=3.10.0",
     "rich>=13.9.2",
@@ -30,13 +31,20 @@ bge = [
     "sentence-transformers>=3.2.0",
 ]
 
+[project.scripts]
+jobpilot = "main:main"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 
 [tool.setuptools.packages.find]
-include = ["agent*", "config*", "db*", "services*"]
-exclude = ["data*", "logs*", "prompts*", "tests*"]
+include = ["agent*", "config*", "db*", "discovery*", "orchestrator*", "scoring*", "services*"]
+exclude = ["data*", "logs*", "prompts*", "tests*", "eval*"]
+
+[tool.setuptools.package-data]
+services = ["dashboard.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests", "eval"]
