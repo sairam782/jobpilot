@@ -1,30 +1,18 @@
-"""High-level orchestration bridging discovery, queue, and the LangGraph loop.
-
-Callers get one entry-point per concern:
-
-- ``discover_and_enqueue``: pull jobs from configured discovery adapters,
-  score them against the target config, and add the qualified ones to the
-  queue.
-- ``process_next``: pick the highest-scoring queued job, drive the browser
-  agent against it, and record the result. Honors ``dry_run``, approval,
-  and daily rate limits.
-
-The LangGraph loop is imported lazily to keep API startup cheap and to
-allow tests to substitute a fake runner.
-"""
+"""High-level orchestration bridging discovery, queue, and the LangGraph loop."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from config.settings import settings
-from discovery import registry as discovery_registry
+from discovery.aggregator import AggregateResult, aggregate_search
+from discovery.base import SearchQuery
 from orchestrator import queue, rate_limiter
-from scoring.matcher import ScoredJob, score_jobs
+from scoring.matcher import ResumeProfile, ScoredJob, score_jobs
 from services.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -40,6 +28,65 @@ def load_target_config(path: Path | None = None) -> dict[str, Any]:
     return json.loads(config_path.read_text(encoding="utf-8"))
 
 
+def query_from_target(target: dict[str, Any]) -> SearchQuery:
+    """Coerce the legacy target_config dict into a typed SearchQuery."""
+
+    return SearchQuery(
+        roles=_as_str_list(target.get("target_titles")),
+        locations=_as_str_list(target.get("locations")),
+        remote_preference=str(target.get("remote_preference") or "remote_or_hybrid"),
+        keywords=_as_str_list(target.get("keywords")),
+        exclusion_keywords=_as_str_list(target.get("exclusion_keywords")),
+    )
+
+
+# ---------- Search (Part 1) ------------------------------------------------
+
+
+@dataclass
+class SearchReport:
+    """Return value of ``search_jobs``: ranked results + per-source telemetry."""
+
+    query: dict[str, Any]
+    total_before_dedup: int
+    total_after_dedup: int
+    per_source: list[dict[str, Any]]
+    results: list[dict[str, Any]] = field(default_factory=list)
+
+
+async def search_jobs(
+    *,
+    query: SearchQuery,
+    sources: list[str] | None = None,
+    per_source_limit: int = 50,
+    resume_text: str | None = None,
+    min_score: float | None = None,
+    top_n: int = 100,
+) -> SearchReport:
+    """Fan out the query across every enabled adapter and return ranked results."""
+
+    aggregate: AggregateResult = await aggregate_search(
+        query,
+        sources=sources,
+        per_source_limit=per_source_limit,
+    )
+    profile = ResumeProfile.from_text(resume_text if resume_text is not None else _read_resume_text())
+    scored: list[ScoredJob] = score_jobs(aggregate.jobs, query=query, resume_profile=profile)
+    threshold = min_score if min_score is not None else 0.0
+    accepted = [s for s in scored if s.score >= threshold][:top_n]
+
+    return SearchReport(
+        query=query.as_dict(),
+        total_before_dedup=aggregate.total_before_dedup,
+        total_after_dedup=len(aggregate.jobs),
+        per_source=[ar.__dict__ for ar in aggregate.per_source],
+        results=[s.as_dict() for s in accepted],
+    )
+
+
+# ---------- Discovery (queue-side) -----------------------------------------
+
+
 @dataclass
 class DiscoveryReport:
     """Summary returned from ``discover_and_enqueue``."""
@@ -47,6 +94,7 @@ class DiscoveryReport:
     scanned: int
     matched: int
     enqueued: int
+    per_source: list[dict[str, Any]]
     top: list[dict[str, Any]]
 
 
@@ -56,42 +104,42 @@ async def discover_and_enqueue(
     limit_per_source: int = 50,
     min_score: float | None = None,
     target_config: dict[str, Any] | None = None,
+    resume_text: str | None = None,
+    query: SearchQuery | None = None,
     db_path: Path | None = None,
 ) -> DiscoveryReport:
-    """Pull jobs from discovery adapters, score, and enqueue those above threshold."""
+    """Aggregate → score → enqueue matches above threshold."""
 
-    target = target_config or load_target_config()
-    resume_text = _read_resume_text()
+    target = target_config if target_config is not None else load_target_config()
+    q = query or query_from_target(target)
     threshold = min_score if min_score is not None else settings.score_min_accept
     dbp = db_path or settings.database_path
-    active_sources = sources or discovery_registry.enabled_sources()
 
-    all_jobs: list[dict[str, Any]] = []
-    for source in active_sources:
-        adapter = discovery_registry.get_adapter(source)
-        try:
-            raw = await adapter.fetch(target=target, limit=limit_per_source)
-        except Exception as exc:  # noqa: BLE001 - adapter failures shouldn't kill discovery
-            log.warning("discovery source failed", extra={"source": source, "error": str(exc)})
-            continue
-        for job in raw:
-            job.setdefault("source", source)
-        all_jobs.extend(raw)
-
-    scored: list[ScoredJob] = score_jobs(all_jobs, target=target, resume_text=resume_text)
-    accepted = [s for s in scored if s.score >= threshold]
+    report = await search_jobs(
+        query=q,
+        sources=sources,
+        per_source_limit=limit_per_source,
+        resume_text=resume_text,
+        min_score=threshold,
+        top_n=1000,
+    )
 
     enqueued = 0
-    for s in accepted:
+    for scored in report.results:
         row = queue.enqueue(
             dbp,
-            url=s.job["url"],
-            title=s.job.get("title") or "Untitled role",
-            company=s.job.get("company"),
-            source=s.job.get("source", "unknown"),
-            score=s.score,
-            reasons=s.reasons,
-            metadata=s.job.get("metadata") or {},
+            url=scored["job"]["url"],
+            title=scored["job"].get("title") or "Untitled role",
+            company=scored["job"].get("company"),
+            source=scored["job"].get("source", "unknown"),
+            score=scored["score"],
+            reasons=scored["breakdown"]["reasons"],
+            metadata={
+                **(scored["job"].get("metadata") or {}),
+                "score_breakdown": {
+                    k: v for k, v in scored["breakdown"].items() if k != "reasons"
+                },
+            },
         )
         if row.status == queue.QUEUED:
             enqueued += 1
@@ -99,28 +147,33 @@ async def discover_and_enqueue(
     log.info(
         "discovery complete",
         extra={
-            "sources": active_sources,
-            "scanned": len(all_jobs),
-            "matched": len(accepted),
+            "sources": sources or "enabled",
+            "scanned": report.total_after_dedup,
+            "matched": len(report.results),
             "enqueued": enqueued,
         },
     )
 
     return DiscoveryReport(
-        scanned=len(all_jobs),
-        matched=len(accepted),
+        scanned=report.total_after_dedup,
+        matched=len(report.results),
         enqueued=enqueued,
+        per_source=report.per_source,
         top=[
             {
-                "url": s.job["url"],
-                "title": s.job.get("title"),
-                "company": s.job.get("company"),
-                "score": round(s.score, 3),
-                "reasons": s.reasons,
+                "url": s["job"]["url"],
+                "title": s["job"].get("title"),
+                "company": s["job"].get("company"),
+                "score": round(s["score"], 3),
+                "source": s["job"].get("source"),
+                "matched_skills": s["breakdown"]["matched_skills"][:8],
             }
-            for s in accepted[:10]
+            for s in report.results[:10]
         ],
     )
+
+
+# ---------- Run (Part 2) ---------------------------------------------------
 
 
 @dataclass
@@ -135,7 +188,6 @@ class RunReport:
     audit_entries: list[str]
 
 
-# RunnerFn signature: (job_url, goal, dry_run) -> awaitable of an agent state dict.
 RunnerFn = Callable[[str, str, bool], Awaitable[Any]]
 
 
@@ -160,11 +212,7 @@ async def process_next(
     runner: RunnerFn | None = None,
     db_path: Path | None = None,
 ) -> RunReport | None:
-    """Pick the next queued job and drive the agent against it.
-
-    Returns None when the queue is empty. Raises when the daily rate limit
-    is exhausted (submission-side; queued rows can still accumulate).
-    """
+    """Pick the next queued job and drive the agent against it."""
 
     dbp = db_path or settings.database_path
     is_dry = settings.dry_run if dry_run is None else dry_run
@@ -226,14 +274,10 @@ async def process_next(
             audit_entries=audit,
         )
 
-    # Ready-for-submit path.
     if needs_approval or is_dry:
         row = queue.mark_needs_approval(
-            dbp,
-            job.id,
-            filled_fields=filled,
-            answer_previews=answers,
-            audit_entries=audit,
+            dbp, job.id,
+            filled_fields=filled, answer_previews=answers, audit_entries=audit,
         )
         return RunReport(
             job_id=row.id or 0,
@@ -244,9 +288,6 @@ async def process_next(
             audit_entries=audit,
         )
 
-    # Fully autonomous submit path — the graph itself is responsible for the
-    # final click. We record the submission attempt here so daily caps stay
-    # honest.
     row = queue.mark_submitted(dbp, job.id)
     return RunReport(
         job_id=row.id or 0,
@@ -271,8 +312,6 @@ def _read_resume_text() -> str:
 def _extract_result(
     result: Any,
 ) -> tuple[dict[str, str], list[str], list[str], str | None, str | None, bool]:
-    """Pull the fields we care about out of an AgentState-like object or dict."""
-
     def _pluck(name: str, default: Any) -> Any:
         if isinstance(result, dict):
             return result.get(name, default)
@@ -294,3 +333,11 @@ def _extract_result(
 
     error_text = errors[-1] if errors else None
     return filled, answers, audit, status, error_text, done
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(item) for item in value]

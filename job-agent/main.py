@@ -63,9 +63,21 @@ def _list_targets() -> None:
 
 
 async def _cmd_discover(args: argparse.Namespace) -> None:
-    from orchestrator.service import discover_and_enqueue
+    from discovery.base import SearchQuery
+    from orchestrator.service import discover_and_enqueue, load_target_config, query_from_target
 
+    target = load_target_config()
+    base = query_from_target(target)
+    q = SearchQuery(
+        roles=list(args.role) if args.role else base.roles,
+        locations=list(args.location) if args.location else base.locations,
+        remote_preference=args.remote_preference or base.remote_preference,
+        keywords=base.keywords,
+        exclusion_keywords=base.exclusion_keywords,
+        country=args.country,
+    )
     report = await discover_and_enqueue(
+        query=q,
         sources=[s.strip() for s in args.source] if args.source else None,
         limit_per_source=args.limit_per_source,
         min_score=args.min_score,
@@ -75,7 +87,40 @@ async def _cmd_discover(args: argparse.Namespace) -> None:
             "scanned": report.scanned,
             "matched": report.matched,
             "enqueued": report.enqueued,
+            "per_source": report.per_source,
             "top": report.top,
+        }
+    )
+
+
+async def _cmd_search(args: argparse.Namespace) -> None:
+    from discovery.base import SearchQuery
+    from orchestrator.service import load_target_config, query_from_target, search_jobs
+
+    target = load_target_config()
+    base = query_from_target(target)
+    q = SearchQuery(
+        roles=list(args.role) if args.role else base.roles,
+        locations=list(args.location) if args.location else base.locations,
+        remote_preference=args.remote_preference or base.remote_preference,
+        keywords=base.keywords,
+        exclusion_keywords=base.exclusion_keywords,
+        country=args.country,
+    )
+    report = await search_jobs(
+        query=q,
+        sources=[s.strip() for s in args.source] if args.source else None,
+        per_source_limit=args.limit_per_source,
+        min_score=args.min_score,
+        top_n=args.top_n,
+    )
+    console.print_json(
+        data={
+            "query": report.query,
+            "total_before_dedup": report.total_before_dedup,
+            "total_after_dedup": report.total_after_dedup,
+            "per_source": report.per_source,
+            "results": report.results,
         }
     )
 
@@ -137,9 +182,27 @@ def main() -> None:
     sub.add_parser("targets", help="Print target config and safety flags.")
 
     p_discover = sub.add_parser("discover", help="Run discovery adapters and enqueue matches.")
+    p_discover.add_argument("--role", action="append", default=None, help="Target job title (repeatable).")
+    p_discover.add_argument("--location", action="append", default=None, help="Preferred location (repeatable).")
+    p_discover.add_argument("--remote-preference", default=None,
+                            choices=["remote_only", "remote_or_hybrid", "onsite_only"])
+    p_discover.add_argument("--country", default="us")
     p_discover.add_argument("--source", action="append", default=None, help="Adapter name (repeatable).")
     p_discover.add_argument("--limit-per-source", type=int, default=50)
     p_discover.add_argument("--min-score", type=float, default=None)
+
+    p_search = sub.add_parser("search", help="Search across every enabled adapter (no queue writes).")
+    p_search.add_argument("--role", action="append", default=None, help="Target job title (repeatable).")
+    p_search.add_argument("--location", action="append", default=None, help="Preferred location (repeatable).")
+    p_search.add_argument("--remote-preference", default=None,
+                          choices=["remote_only", "remote_or_hybrid", "onsite_only"])
+    p_search.add_argument("--country", default="us")
+    p_search.add_argument("--source", action="append", default=None, help="Adapter name (repeatable).")
+    p_search.add_argument("--limit-per-source", type=int, default=50)
+    p_search.add_argument("--min-score", type=float, default=None)
+    p_search.add_argument("--top-n", type=int, default=25)
+
+    sub.add_parser("sources", help="List registered + enabled discovery adapters.")
 
     p_queue = sub.add_parser("queue", help="List queue rows.")
     p_queue.add_argument("--status", default=None, help="Comma-separated status filter.")
@@ -172,6 +235,18 @@ def main() -> None:
 
     if args.cmd == "discover":
         asyncio.run(_cmd_discover(args))
+        return
+    if args.cmd == "search":
+        asyncio.run(_cmd_search(args))
+        return
+    if args.cmd == "sources":
+        from discovery import registry as reg
+        console.print_json(
+            data={
+                "registered": reg.registered_sources(),
+                "enabled": reg.enabled_sources(),
+            }
+        )
         return
     if args.cmd == "queue":
         asyncio.run(_cmd_queue(args))

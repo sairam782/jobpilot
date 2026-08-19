@@ -33,6 +33,8 @@ from rapidfuzz import fuzz
 from agent.router import TaskType, select_model
 from config.settings import settings
 from db.sqlite_memory import init_db
+from discovery import registry as discovery_registry
+from discovery.base import SearchQuery
 from orchestrator import queue as queue_mod
 from orchestrator import rate_limiter
 from orchestrator.service import (
@@ -41,6 +43,8 @@ from orchestrator.service import (
     discover_and_enqueue,
     load_target_config,
     process_next,
+    query_from_target,
+    search_jobs,
 )
 from services.logging_config import configure_logging, get_logger
 from services.resume_processor import chunk_text
@@ -162,28 +166,95 @@ async def resume_qa(request: ResumeQARequest) -> ResumeQAResponse:
     )
 
 
-# ---------- Discovery ------------------------------------------------------
+# ---------- Search + discovery --------------------------------------------
 
 
-class DiscoveryRequest(BaseModel):
-    sources: list[str] | None = None
-    limit_per_source: int = Field(default=50, ge=1, le=200)
+class SearchRequest(BaseModel):
+    roles: list[str] = Field(default_factory=list, description="Target job titles.")
+    locations: list[str] = Field(default_factory=list)
+    remote_preference: str = "remote_or_hybrid"
+    keywords: list[str] = Field(default_factory=list)
+    exclusion_keywords: list[str] = Field(default_factory=list)
+    country: str = "us"
+    max_age_days: int | None = Field(default=None, ge=1, le=180)
+
+    sources: list[str] | None = Field(default=None, description="Restrict adapters; default is all enabled.")
+    per_source_limit: int = Field(default=50, ge=1, le=200)
     min_score: float | None = Field(default=None, ge=0, le=1)
+    top_n: int = Field(default=100, ge=1, le=500)
+    resume_text: str | None = Field(default=None, description="Inline resume; falls back to RESUME_EXPANDED_PATH.")
+
+
+class DiscoveryRequest(SearchRequest):
+    """Same as SearchRequest but persists matches to the queue."""
+
+
+def _query_from(request: SearchRequest, fallback_target: dict[str, Any]) -> SearchQuery:
+    """Build a SearchQuery from the request, falling back to target_config for empties."""
+
+    fallback = query_from_target(fallback_target)
+    return SearchQuery(
+        roles=request.roles or fallback.roles,
+        locations=request.locations or fallback.locations,
+        remote_preference=request.remote_preference or fallback.remote_preference,
+        keywords=request.keywords or fallback.keywords,
+        exclusion_keywords=request.exclusion_keywords or fallback.exclusion_keywords,
+        country=request.country,
+        max_age_days=request.max_age_days,
+    )
+
+
+@app.get("/sources")
+async def list_sources() -> dict[str, Any]:
+    """Which adapters exist and which are configured this run."""
+
+    return {
+        "registered": discovery_registry.registered_sources(),
+        "enabled": discovery_registry.enabled_sources(),
+    }
+
+
+@app.post("/search")
+async def search(request: SearchRequest) -> dict[str, Any]:
+    """Fan out the search across every enabled adapter and return ranked results."""
+
+    target = load_target_config()
+    q = _query_from(request, target)
+    report = await search_jobs(
+        query=q,
+        sources=request.sources,
+        per_source_limit=request.per_source_limit,
+        resume_text=request.resume_text,
+        min_score=request.min_score,
+        top_n=request.top_n,
+    )
+    return {
+        "query": report.query,
+        "total_before_dedup": report.total_before_dedup,
+        "total_after_dedup": report.total_after_dedup,
+        "per_source": report.per_source,
+        "results": report.results,
+    }
 
 
 @app.post("/discover", response_model=dict)
 async def discover(request: DiscoveryRequest) -> dict[str, Any]:
     """Run discovery adapters and enqueue matches above the score threshold."""
 
+    target = load_target_config()
+    q = _query_from(request, target)
     report: DiscoveryReport = await discover_and_enqueue(
+        query=q,
         sources=request.sources,
-        limit_per_source=request.limit_per_source,
+        limit_per_source=request.per_source_limit,
         min_score=request.min_score,
+        resume_text=request.resume_text,
     )
     return {
         "scanned": report.scanned,
         "matched": report.matched,
         "enqueued": report.enqueued,
+        "per_source": report.per_source,
         "top": report.top,
     }
 

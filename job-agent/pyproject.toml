@@ -40,7 +40,7 @@ target-version = "py312"
 
 [tool.setuptools.packages.find]
 include = ["agent*", "config*", "db*", "discovery*", "orchestrator*", "scoring*", "services*"]
-exclude = ["data*", "logs*", "prompts*", "tests*", "eval*"]
+exclude = ["data*", "logs*", "prompts*", "tests*", "eval*", "scripts*"]
 
 [tool.setuptools.package-data]
 services = ["dashboard.html"]
