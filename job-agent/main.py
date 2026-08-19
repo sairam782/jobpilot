@@ -75,6 +75,7 @@ async def _cmd_discover(args: argparse.Namespace) -> None:
         keywords=base.keywords,
         exclusion_keywords=base.exclusion_keywords,
         country=args.country,
+        employment_types=list(args.employment_type) if args.employment_type else base.employment_types,
     )
     report = await discover_and_enqueue(
         query=q,
@@ -106,6 +107,7 @@ async def _cmd_search(args: argparse.Namespace) -> None:
         keywords=base.keywords,
         exclusion_keywords=base.exclusion_keywords,
         country=args.country,
+        employment_types=list(args.employment_type) if args.employment_type else base.employment_types,
     )
     report = await search_jobs(
         query=q,
@@ -187,6 +189,9 @@ def main() -> None:
     p_discover.add_argument("--remote-preference", default=None,
                             choices=["remote_only", "remote_or_hybrid", "onsite_only"])
     p_discover.add_argument("--country", default="us")
+    p_discover.add_argument("--employment-type", action="append", default=None,
+                            choices=["full_time", "part_time", "contract", "internship", "temporary"],
+                            help="Restrict to these commitments (repeatable).")
     p_discover.add_argument("--source", action="append", default=None, help="Adapter name (repeatable).")
     p_discover.add_argument("--limit-per-source", type=int, default=50)
     p_discover.add_argument("--min-score", type=float, default=None)
@@ -197,6 +202,9 @@ def main() -> None:
     p_search.add_argument("--remote-preference", default=None,
                           choices=["remote_only", "remote_or_hybrid", "onsite_only"])
     p_search.add_argument("--country", default="us")
+    p_search.add_argument("--employment-type", action="append", default=None,
+                          choices=["full_time", "part_time", "contract", "internship", "temporary"],
+                          help="Restrict to these commitments (repeatable).")
     p_search.add_argument("--source", action="append", default=None, help="Adapter name (repeatable).")
     p_search.add_argument("--limit-per-source", type=int, default=50)
     p_search.add_argument("--min-score", type=float, default=None)

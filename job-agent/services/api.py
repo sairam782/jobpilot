@@ -177,6 +177,10 @@ class SearchRequest(BaseModel):
     exclusion_keywords: list[str] = Field(default_factory=list)
     country: str = "us"
     max_age_days: int | None = Field(default=None, ge=1, le=180)
+    employment_types: list[str] = Field(
+        default_factory=list,
+        description="Any of full_time/part_time/contract/internship/temporary. Empty = all.",
+    )
 
     sources: list[str] | None = Field(default=None, description="Restrict adapters; default is all enabled.")
     per_source_limit: int = Field(default=50, ge=1, le=200)
@@ -201,6 +205,7 @@ def _query_from(request: SearchRequest, fallback_target: dict[str, Any]) -> Sear
         exclusion_keywords=request.exclusion_keywords or fallback.exclusion_keywords,
         country=request.country,
         max_age_days=request.max_age_days,
+        employment_types=request.employment_types or fallback.employment_types,
     )
 
 

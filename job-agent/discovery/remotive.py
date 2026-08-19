@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import httpx
 
-from discovery._text import strip_html
+from discovery._text import normalize_employment_type, strip_html
 from discovery.base import Job, SearchQuery
 from discovery.http import HTTPClientError, get_json
 from services.logging_config import get_logger
@@ -67,6 +67,7 @@ def _normalize(raw: dict) -> Job | None:
         posted_at=raw.get("publication_date"),
         source="remotive",
         remote=True,
+        employment_type=normalize_employment_type(raw.get("job_type")),
         metadata={
             "provider": "remotive",
             "category": raw.get("category"),

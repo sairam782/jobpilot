@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import httpx
 
-from discovery._text import strip_html
+from discovery._text import normalize_employment_type, strip_html
 from discovery.base import Job, SearchQuery
 from discovery.http import HTTPClientError, get_json
 from services.logging_config import get_logger
@@ -84,6 +84,7 @@ def _normalize(raw: dict, title: str) -> Job | None:
         salary_min=_to_float(raw.get("salary_min")),
         salary_max=_to_float(raw.get("salary_max")),
         salary_currency="USD",
+        employment_type=normalize_employment_type(raw.get("position") or raw.get("job_type")),
         metadata={
             "provider": "remoteok",
             "tags": raw.get("tags"),

@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     ashby_companies: str = Field(default="", alias="ASHBY_COMPANIES")
     workable_companies: str = Field(default="", alias="WORKABLE_COMPANIES")
 
+    # Curated packs from discovery/companies.py — folded into the corresponding
+    # *_COMPANIES list at runtime. Example:
+    #   GREENHOUSE_PACKS=ai-labs,ai-tooling,healthcare-ai
+    greenhouse_packs: str = Field(default="", alias="GREENHOUSE_PACKS")
+    lever_packs: str = Field(default="", alias="LEVER_PACKS")
+    ashby_packs: str = Field(default="", alias="ASHBY_PACKS")
+    workable_packs: str = Field(default="", alias="WORKABLE_PACKS")
+
     # Aggregator API keys.
     adzuna_app_id: str | None = Field(default=None, alias="ADZUNA_APP_ID")
     adzuna_app_key: str | None = Field(default=None, alias="ADZUNA_APP_KEY")
@@ -81,23 +89,39 @@ class Settings(BaseSettings):
 
     @property
     def greenhouse_company_list(self) -> list[str]:
-        return _csv(self.greenhouse_companies)
+        return _merge(self.greenhouse_companies, "greenhouse", self.greenhouse_packs)
 
     @property
     def lever_company_list(self) -> list[str]:
-        return _csv(self.lever_companies)
+        return _merge(self.lever_companies, "lever", self.lever_packs)
 
     @property
     def ashby_company_list(self) -> list[str]:
-        return _csv(self.ashby_companies)
+        return _merge(self.ashby_companies, "ashby", self.ashby_packs)
 
     @property
     def workable_company_list(self) -> list[str]:
-        return _csv(self.workable_companies)
+        return _merge(self.workable_companies, "workable", self.workable_packs)
 
 
 def _csv(raw: str) -> list[str]:
     return [c.strip() for c in raw.split(",") if c.strip()]
+
+
+def _merge(explicit_csv: str, provider: str, pack_csv: str) -> list[str]:
+    """Union of ``*_COMPANIES`` and expanded ``*_PACKS`` slugs, dedup-preserving order."""
+
+    # Imported lazily so `config.settings` stays import-order-safe.
+    from discovery.companies import resolve_companies
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for slug in _csv(explicit_csv) + resolve_companies(provider, _csv(pack_csv)):
+        key = slug.lower()
+        if key and key not in seen:
+            seen.add(key)
+            result.append(slug)
+    return result
 
 
 settings = Settings()

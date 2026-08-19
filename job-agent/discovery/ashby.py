@@ -12,7 +12,7 @@ from __future__ import annotations
 import httpx
 
 from config.settings import settings
-from discovery._text import strip_html
+from discovery._text import normalize_employment_type, strip_html
 from discovery.base import Job, SearchQuery
 from discovery.http import HTTPClientError, get_json
 from services.logging_config import get_logger
@@ -81,6 +81,7 @@ def _normalize(raw: dict, org: str) -> Job | None:
         salary_min=tier.get("minValue"),
         salary_max=tier.get("maxValue"),
         salary_currency=tier.get("currencyCode"),
+        employment_type=normalize_employment_type(raw.get("employmentType")),
         metadata={
             "provider": "ashby",
             "department": raw.get("department"),

@@ -16,7 +16,7 @@ from __future__ import annotations
 import httpx
 
 from config.settings import settings
-from discovery._text import strip_html, truncate
+from discovery._text import normalize_employment_type, strip_html, truncate
 from discovery.base import Job, SearchQuery
 from discovery.http import HTTPClientError, get_json
 from services.logging_config import get_logger
@@ -121,6 +121,7 @@ def _normalize(item: dict) -> Job | None:
         salary_min=salary_min,
         salary_max=salary_max,
         salary_currency=remuneration.get("RateIntervalCode") and "USD" or None,
+        employment_type=_infer_usajobs_employment(descriptor),
         metadata={
             "provider": "usajobs",
             "series": descriptor.get("JobCategory"),
@@ -128,6 +129,15 @@ def _normalize(item: dict) -> Job | None:
             "position_id": descriptor.get("PositionID"),
         },
     )
+
+
+def _infer_usajobs_employment(descriptor: dict) -> str | None:
+    schedules = descriptor.get("PositionSchedule") or []
+    for s in schedules:
+        canonical = normalize_employment_type(s.get("Name"))
+        if canonical:
+            return canonical
+    return None
 
 
 def _to_float(value) -> float | None:

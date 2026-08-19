@@ -37,6 +37,7 @@ def query_from_target(target: dict[str, Any]) -> SearchQuery:
         remote_preference=str(target.get("remote_preference") or "remote_or_hybrid"),
         keywords=_as_str_list(target.get("keywords")),
         exclusion_keywords=_as_str_list(target.get("exclusion_keywords")),
+        employment_types=_as_str_list(target.get("employment_types")),
     )
 
 

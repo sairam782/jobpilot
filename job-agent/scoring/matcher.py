@@ -145,6 +145,15 @@ def _score_one(job: Job, q: SearchQuery, profile: ResumeProfile) -> ScoredJob:
             breakdown.reasons.append(f"excluded_keyword:{keyword}")
             return ScoredJob(job=job, score=0.0, breakdown=breakdown)
 
+    # Employment-type gate. Only fires when the caller asked for specific
+    # types AND the source told us the job's type. Unknown employment_type
+    # is not penalized (many boards don't publish it).
+    if q.employment_types and job.employment_type:
+        wanted = {t.lower() for t in q.employment_types}
+        if job.employment_type not in wanted:
+            breakdown.reasons.append(f"excluded_employment_type:{job.employment_type}")
+            return ScoredJob(job=job, score=0.0, breakdown=breakdown)
+
     breakdown.title = _title_match(job.title or "", q.roles)
     breakdown.reasons.append(f"title:{round(breakdown.title, 2)}")
 

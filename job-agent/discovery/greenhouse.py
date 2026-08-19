@@ -14,7 +14,7 @@ from __future__ import annotations
 import httpx
 
 from config.settings import settings
-from discovery._text import strip_html
+from discovery._text import normalize_employment_type, strip_html
 from discovery.base import Job, SearchQuery
 from discovery.http import HTTPClientError, get_json
 from services.logging_config import get_logger
@@ -63,6 +63,23 @@ class GreenhouseAdapter:
         return jobs
 
 
+def _infer_gh_employment(raw: dict) -> str | None:
+    """Greenhouse doesn't expose employment type as a field; guess from title + metadata custom fields."""
+
+    title = str(raw.get("title") or "").lower()
+    guess = normalize_employment_type(title)
+    if guess:
+        return guess
+    for field_group in raw.get("metadata") or []:
+        name = str((field_group or {}).get("name") or "").lower()
+        if "employment" in name or "commitment" in name or "type" in name:
+            value = str((field_group or {}).get("value") or "")
+            guess = normalize_employment_type(value)
+            if guess:
+                return guess
+    return None
+
+
 def _normalize(raw: dict, company: str) -> Job | None:
     url = raw.get("absolute_url")
     title = raw.get("title")
@@ -80,6 +97,7 @@ def _normalize(raw: dict, company: str) -> Job | None:
         posted_at=raw.get("updated_at") or raw.get("first_published"),
         source="greenhouse",
         remote=("remote" in location.lower()) if location else None,
+        employment_type=_infer_gh_employment(raw),
         metadata={
             "provider": "greenhouse",
             "internal_id": raw.get("id"),

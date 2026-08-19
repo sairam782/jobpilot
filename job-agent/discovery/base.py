@@ -34,6 +34,9 @@ class SearchQuery:
     exclusion_keywords: list[str] = field(default_factory=list)
     country: str = "us"
     max_age_days: int | None = None
+    # Empty list = no employment-type filter. Recognized values:
+    # "full_time", "part_time", "contract", "internship", "temporary".
+    employment_types: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -54,6 +57,9 @@ class Job:
     salary_min: float | None = None
     salary_max: float | None = None
     salary_currency: str | None = None
+    # Normalized commitment: "full_time" | "part_time" | "contract" |
+    # "internship" | "temporary" | None (unknown).
+    employment_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -89,6 +95,7 @@ class Job:
             salary_min=data.get("salary_min"),
             salary_max=data.get("salary_max"),
             salary_currency=data.get("salary_currency"),
+            employment_type=data.get("employment_type"),
             metadata=dict(data.get("metadata") or {}),
         )
 
