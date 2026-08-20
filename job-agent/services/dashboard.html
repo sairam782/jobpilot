@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JobPilot</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fafafa;
+        --panel: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #2563eb;
+        --accent-fg: #ffffff;
+        --danger: #b91c1c;
+        --ok: #047857;
+        --warn: #b45309;
+        --code-bg: #f3f4f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b0d10;
+          --panel: #14181d;
+          --text: #e5e7eb;
+          --muted: #9ca3af;
+          --border: #262b32;
+          --accent: #3b82f6;
+          --accent-fg: #ffffff;
+          --danger: #f87171;
+          --ok: #34d399;
+          --warn: #fbbf24;
+          --code-bg: #1a1f26;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: -0.01em;
+      }
+      header .subtitle {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .flags {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .flag {
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .flag.on { color: var(--ok); border-color: var(--ok); }
+      .flag.off { color: var(--danger); border-color: var(--danger); }
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+        padding: 16px 24px 32px;
+      }
+      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+      }
+      section h2 {
+        margin: 0 0 12px 0;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      button, .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+      button.danger { color: var(--danger); border-color: var(--danger); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      input, textarea, select {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 13px;
+        font-family: inherit;
+        width: 100%;
+      }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+      .status { font-size: 11px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); text-transform: uppercase; }
+      .status.queued { color: var(--muted); }
+      .status.running { color: var(--accent); border-color: var(--accent); }
+      .status.needs_approval { color: var(--warn); border-color: var(--warn); }
+      .status.submitted { color: var(--ok); border-color: var(--ok); }
+      .status.failed, .status.rejected { color: var(--danger); border-color: var(--danger); }
+      .muted { color: var(--muted); }
+      pre { background: var(--code-bg); padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+      .actions button { padding: 4px 8px; font-size: 12px; }
+      .badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--code-bg); }
+      .split { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+      .split > div { flex: 1 1 200px; }
+      details { margin-top: 6px; }
+      details summary { cursor: pointer; color: var(--muted); }
+      #toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--border); padding: 10px 14px; border-radius: 8px; opacity: 0; transition: opacity 0.2s; }
+      #toast.on { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>JobPilot</h1>
+        <div class="subtitle">Safety-first autonomous job applications</div>
+      </div>
+      <div class="flags" id="flags"></div>
+    </header>
+
+    <main>
+      <section>
+        <h2>Discovery</h2>
+        <p class="muted">Pulls jobs from configured Greenhouse / Lever boards, scores them against
+        your target config, and enqueues qualified matches.</p>
+        <div class="row">
+          <label class="muted" for="min-score">Min score</label>
+          <input id="min-score" type="number" step="0.05" min="0" max="1" value="0.55" style="width:80px" />
+          <label class="muted" for="limit-per-source">Per source</label>
+          <input id="limit-per-source" type="number" step="1" min="1" max="200" value="50" style="width:80px" />
+          <button class="primary" onclick="runDiscover()">Discover jobs</button>
+        </div>
+        <div id="discover-report" style="margin-top:12px"></div>
+      </section>
+
+      <section>
+        <h2>Add URL</h2>
+        <p class="muted">Enqueue a specific application URL directly (bypasses discovery/scoring).</p>
+        <div class="row">
+          <input id="manual-url" placeholder="https://boards.greenhouse.io/…/jobs/…" />
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="manual-title" placeholder="Role title (optional)" />
+          <input id="manual-company" placeholder="Company (optional)" style="max-width:220px" />
+          <button class="primary" onclick="addManualUrl()">Enqueue</button>
+        </div>
+      </section>
+
+      <section style="grid-column: 1 / -1">
+        <h2>Queue</h2>
+        <div class="row" style="margin-bottom:8px">
+          <button onclick="loadQueue()">Refresh</button>
+          <button class="primary" onclick="runNext()">Process next</button>
+          <span class="muted" id="queue-summary"></span>
+        </div>
+        <div style="overflow-x:auto">
+          <table id="queue-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Score</th>
+                <th>Title</th>
+                <th>Company</th>
+                <th>Source</th>
+                <th>Reasons</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="detail" style="margin-top:16px"></div>
+      </section>
+    </main>
+
+    <div id="toast"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const toast = (msg) => {
+        const el = $("toast");
+        el.textContent = msg;
+        el.classList.add("on");
+        clearTimeout(toast._t);
+        toast._t = setTimeout(() => el.classList.remove("on"), 2500);
+      };
+      async function api(method, url, body) {
+        const opts = { method, headers: { "Content-Type": "application/json" } };
+        if (body !== undefined) opts.body = JSON.stringify(body);
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+          const detail = await r.json().catch(() => ({ detail: r.statusText }));
+          throw new Error(detail.detail || r.statusText);
+        }
+        return r.json();
+      }
+
+      async function loadFlags() {
+        const h = await api("GET", "/health");
+        const flags = $("flags");
+        flags.innerHTML = "";
+        const chip = (name, on, klass) => {
+          const s = document.createElement("span");
+          s.className = "flag " + (klass || (on ? "on" : "off"));
+          s.textContent = `${name}: ${on ? "on" : "off"}`;
+          flags.appendChild(s);
+        };
+        chip("dry_run", h.dry_run);
+        chip("require_approval", h.require_approval);
+        chip("stop_on_captcha", h.stop_on_captcha);
+        const rl = document.createElement("span");
+        rl.className = "flag";
+        rl.textContent = `daily: ${h.max_applies_per_day - h.rate_limit_remaining}/${h.max_applies_per_day}`;
+        flags.appendChild(rl);
+      }
+
+      async function loadQueue() {
+        const data = await api("GET", "/queue?limit=200");
+        const tbody = document.querySelector("#queue-table tbody");
+        tbody.innerHTML = "";
+        const counts = Object.entries(data.counts).map(([k, v]) => `${k}=${v}`).join(" · ");
+        $("queue-summary").textContent = counts || "empty";
+        for (const j of data.jobs) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td><span class="status ${j.status}">${j.status.replace("_", " ")}</span></td>
+            <td><span class="badge">${j.score.toFixed(2)}</span></td>
+            <td><a href="${j.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.title)}</a></td>
+            <td>${escapeHtml(j.company || "—")}</td>
+            <td class="muted">${escapeHtml(j.source)}</td>
+            <td class="muted">${escapeHtml(j.reasons.slice(0, 3).join(" · "))}</td>
+            <td class="actions"><button onclick="view(${j.id})">View</button></td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function runDiscover() {
+        const body = {
+          min_score: parseFloat($("min-score").value),
+          limit_per_source: parseInt($("limit-per-source").value, 10),
+        };
+        try {
+          const r = await api("POST", "/discover", body);
+          const top = (r.top || [])
+            .map((t) => `<li>${escapeHtml(t.title)} — ${escapeHtml(t.company || "")} · <span class="badge">${t.score}</span></li>`)
+            .join("");
+          $("discover-report").innerHTML = `
+            <div>Scanned ${r.scanned} · Matched ${r.matched} · Enqueued ${r.enqueued}</div>
+            ${top ? `<ol style="margin-top:8px">${top}</ol>` : ""}
+          `;
+          await loadQueue();
+        } catch (e) {
+          toast("Discovery failed: " + e.message);
+        }
+      }
+
+      async function addManualUrl() {
+        const url = $("manual-url").value.trim();
+        if (!url) return toast("URL required");
+        const body = {
+          url,
+          title: $("manual-title").value.trim() || "Manual URL",
+          company: $("manual-company").value.trim() || null,
+        };
+        try {
+          await api("POST", "/queue", body);
+          $("manual-url").value = "";
+          $("manual-title").value = "";
+          $("manual-company").value = "";
+          await loadQueue();
+          toast("Enqueued");
+        } catch (e) {
+          toast("Enqueue failed: " + e.message);
+        }
+      }
+
+      async function runNext() {
+        try {
+          const r = await api("POST", "/runs/next", {});
+          if (!r.picked) return toast("Queue empty");
+          toast(`Ran job ${r.job_id} → ${r.status}`);
+          await Promise.all([loadQueue(), loadFlags()]);
+          view(r.job_id);
+        } catch (e) {
+          toast("Run failed: " + e.message);
+        }
+      }
+
+      async function view(id) {
+        const j = await api("GET", `/queue/${id}`);
+        const filled = Object.entries(j.filled_fields || {})
+          .map(([k, v]) => `<li><code>${escapeHtml(k)}</code>: ${escapeHtml(String(v))}</li>`)
+          .join("");
+        const answers = (j.answer_previews || [])
+          .map((a) => `<li>${escapeHtml(a)}</li>`)
+          .join("");
+        const audit = (j.audit_entries || []).map((a) => escapeHtml(a)).join("\n");
+        const reasons = (j.reasons || []).map((r) => `<span class="badge">${escapeHtml(r)}</span>`).join(" ");
+        const canAct = j.status === "needs_approval";
+        const canRequeue = j.status === "failed";
+        $("detail").innerHTML = `
+          <section>
+            <h2>Job #${j.id} · <span class="status ${j.status}">${j.status.replace("_", " ")}</span></h2>
+            <div><strong>${escapeHtml(j.title)}</strong> · ${escapeHtml(j.company || "")}</div>
+            <div class="muted"><a href="${j.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.url)}</a></div>
+            <div style="margin-top:8px">${reasons}</div>
+            ${j.error_text ? `<pre style="color:var(--danger)">${escapeHtml(j.error_text)}</pre>` : ""}
+            <div class="split" style="margin-top:12px">
+              <div>
+                <h2 style="font-size:12px">Filled fields</h2>
+                ${filled ? `<ul>${filled}</ul>` : `<div class="muted">none</div>`}
+              </div>
+              <div>
+                <h2 style="font-size:12px">Answer previews</h2>
+                ${answers ? `<ul>${answers}</ul>` : `<div class="muted">none</div>`}
+              </div>
+            </div>
+            ${audit ? `<details><summary>Audit</summary><pre>${audit}</pre></details>` : ""}
+            <div class="row" style="margin-top:12px">
+              ${canAct ? `<button class="primary" onclick="act(${j.id}, 'approve')">Approve</button>` : ""}
+              ${canAct ? `<button class="danger" onclick="act(${j.id}, 'reject')">Reject</button>` : ""}
+              ${canAct || j.status === "queued" ? `<button onclick="act(${j.id}, 'skip')">Skip</button>` : ""}
+              ${canRequeue ? `<button onclick="act(${j.id}, 'requeue')">Requeue</button>` : ""}
+            </div>
+          </section>
+        `;
+      }
+
+      async function act(id, action) {
+        try {
+          await api("POST", `/queue/${id}/${action}`, {});
+          toast(action + " ok");
+          await loadQueue();
+          view(id);
+        } catch (e) {
+          toast(action + " failed: " + e.message);
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s ?? "").replace(/[&<>"']/g, (c) => (
+          { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+        ));
+      }
+
+      loadFlags();
+      loadQueue();
+      setInterval(loadFlags, 30_000);
+    </script>
+  </body>
+</html>
