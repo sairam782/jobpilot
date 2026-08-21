@@ -239,3 +239,33 @@ async def test_adapter_returns_empty_on_500(monkeypatch: pytest.MonkeyPatch) -> 
     adapter = TheMuseAdapter()
     jobs = await adapter.fetch(query=SearchQuery(roles=["engineering"]), limit=5)
     assert jobs == []
+
+
+# ---------- USAJobs hardening (regressions) --------------------------------
+
+
+def test_usajobs_normalize_handles_null_userarea_and_missing_position_uri() -> None:
+    """Descriptor whose UserArea is explicitly null, ApplyURI is a list, and
+    PositionRemuneration contains a None entry — all previously crashed."""
+
+    from discovery.usajobs import _normalize
+
+    descriptor = {
+        "MatchedObjectDescriptor": {
+            "PositionURI": None,  # missing → fall back to ApplyURI
+            "ApplyURI": [None, "https://usajobs.gov/apply/1"],
+            "PositionTitle": "Data Scientist",
+            "OrganizationName": "VA",
+            "PositionLocation": [{"LocationName": "Remote"}, None],  # None entry too
+            "UserArea": None,  # historically crashed on .get("Details", {})
+            "PositionRemuneration": [None, {"MinimumRange": "1", "MaximumRange": "2",
+                                            "RateIntervalCode": "PA"}],
+        }
+    }
+    job = _normalize(descriptor)
+    assert job is not None
+    assert job.url.endswith("/1")
+    assert job.company == "VA"
+    assert job.location == "Remote"
+    assert job.description == ""      # UserArea null → no crash, empty desc
+    assert job.salary_min == 1.0      # first non-None Remuneration entry used
