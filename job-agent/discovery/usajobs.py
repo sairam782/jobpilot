@@ -86,26 +86,31 @@ class USAJobsAdapter:
 
 def _normalize(item: dict) -> Job | None:
     descriptor = (item or {}).get("MatchedObjectDescriptor") or {}
-    url = descriptor.get("PositionURI") or descriptor.get("ApplyURI", [None])[0]
+    url = descriptor.get("PositionURI") or _first(descriptor.get("ApplyURI"))
     title = descriptor.get("PositionTitle")
     if not url or not title:
         return None
 
     org = descriptor.get("OrganizationName")
     locations = descriptor.get("PositionLocation") or []
-    loc_names = [loc.get("LocationName") for loc in locations if loc.get("LocationName")]
+    loc_names = [
+        (loc or {}).get("LocationName")
+        for loc in locations
+        if isinstance(loc, dict) and loc.get("LocationName")
+    ]
     location = "; ".join(loc_names)
 
-    user_data = descriptor.get("UserArea", {}).get("Details", {})
-    description_parts = [
-        user_data.get("JobSummary") or "",
-        user_data.get("MajorDuties") or "",
-    ]
-    if isinstance(description_parts[1], list):
-        description_parts[1] = " ".join(str(p) for p in description_parts[1])
-    description = truncate(strip_html(" ".join(str(p) for p in description_parts)), max_len=6000)
+    # UserArea can be a dict, missing, or explicitly null; ``.get(k, {})`` on
+    # None crashes, so coalesce first.
+    user_area = descriptor.get("UserArea") or {}
+    user_data = (user_area.get("Details") if isinstance(user_area, dict) else None) or {}
+    summary = user_data.get("JobSummary") or ""
+    duties = user_data.get("MajorDuties") or ""
+    if isinstance(duties, list):
+        duties = " ".join(str(p) for p in duties)
+    description = truncate(strip_html(f"{summary} {duties}"), max_len=6000)
 
-    remuneration = (descriptor.get("PositionRemuneration") or [{}])[0]
+    remuneration = _first(descriptor.get("PositionRemuneration")) or {}
     salary_min = _to_float(remuneration.get("MinimumRange"))
     salary_max = _to_float(remuneration.get("MaximumRange"))
 
@@ -137,6 +142,16 @@ def _infer_usajobs_employment(descriptor: dict) -> str | None:
         canonical = normalize_employment_type(s.get("Name"))
         if canonical:
             return canonical
+    return None
+
+
+def _first(value) -> object:
+    """Return the first non-None element of a list, or None for anything else."""
+
+    if isinstance(value, list):
+        for item in value:
+            if item is not None:
+                return item
     return None
 
 
