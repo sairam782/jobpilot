@@ -98,9 +98,32 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
     _CONFIGURED = True
 
 
-def get_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
-    """Return a logger adapter that attaches contextual `extra` fields."""
+class _BoundLogger(logging.LoggerAdapter):
+    """LoggerAdapter that merges bound context into every record's ``extra``.
+
+    Use ``log.bind(job_id=..., url=...)`` to get a child adapter that stamps
+    those keys on every subsequent record — no need to repeat ``extra=`` on
+    each call site. Bindings chain: ``log.bind(a=1).bind(b=2)`` sees both.
+
+    Explicit ``extra=`` passed at call time overrides bound values for that
+    one record.
+    """
+
+    def process(self, msg, kwargs):
+        base = dict(self.extra or {})
+        override = kwargs.get("extra") or {}
+        base.update(override)
+        kwargs["extra"] = base
+        return msg, kwargs
+
+    def bind(self, **new_context: Any) -> _BoundLogger:
+        merged = {**(self.extra or {}), **new_context}
+        return _BoundLogger(self.logger, merged)
+
+
+def get_logger(name: str) -> _BoundLogger:
+    """Return a logger adapter that supports ``.bind(**context)`` chaining."""
 
     configure_logging()
     base = logging.getLogger(name)
-    return logging.LoggerAdapter(base, {})
+    return _BoundLogger(base, {})
