@@ -68,12 +68,17 @@ class Job:
 
     @property
     def canonical_url(self) -> str:
-        """A URL suitable for cross-adapter dedup: scheme+host+path, no query/fragment."""
+        """A URL suitable for cross-adapter dedup.
 
-        from urllib.parse import urlsplit, urlunsplit
+        See ``discovery.dedup.canonicalize_url`` for the normalization
+        rules (host lowercasing, ``www.`` stripping, default-port drop,
+        tracking-param strip, slash collapsing, fragment drop).
+        """
 
-        parts = urlsplit(self.url)
-        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), "", ""))
+        # Imported here to avoid a circular import at module load.
+        from discovery.dedup import canonicalize_url
+
+        return canonicalize_url(self.url)
 
     @property
     def dedup_key(self) -> str:
