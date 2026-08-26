@@ -436,6 +436,62 @@ def requeue(db_path: Path, job_id: int) -> QueuedJob:
     return _apply_transition(db_path, job_id, QUEUED)
 
 
+# ---------- Bulk operations -------------------------------------------------
+
+
+_BULK_ACTIONS = {
+    "approve": approve,
+    "reject": reject,
+    "skip": mark_skipped,
+    "requeue": requeue,
+}
+
+
+@dataclass
+class BulkOutcome:
+    """Per-row outcome of a ``mark_many`` call."""
+
+    id: int
+    ok: bool
+    status: str | None
+    error: str | None = None
+
+
+def mark_many(
+    db_path: Path,
+    job_ids: list[int],
+    action: str,
+    *,
+    note: str | None = None,
+) -> list[BulkOutcome]:
+    """Apply ``action`` (approve / reject / skip / requeue) to many rows.
+
+    Failures on individual rows (invalid transition, unknown id) are
+    isolated — the loop keeps going and each row gets its own outcome
+    entry, so callers can display a mixed result. Returns outcomes in
+    the same order as ``job_ids``.
+    """
+
+    try:
+        fn = _BULK_ACTIONS[action]
+    except KeyError as exc:
+        raise QueueError(
+            f"unknown bulk action: {action!r} (allowed: {sorted(_BULK_ACTIONS)})"
+        ) from exc
+
+    outcomes: list[BulkOutcome] = []
+    for jid in job_ids:
+        try:
+            if action == "requeue":
+                row = fn(db_path, jid)
+            else:
+                row = fn(db_path, jid, note=note)
+            outcomes.append(BulkOutcome(id=jid, ok=True, status=row.status))
+        except QueueError as exc:
+            outcomes.append(BulkOutcome(id=jid, ok=False, status=None, error=str(exc)))
+    return outcomes
+
+
 def count_by_status(db_path: Path) -> dict[str, int]:
     """Return a status -> count map for the entire queue."""
 
