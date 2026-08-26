@@ -4,9 +4,16 @@ Subcommands
 -----------
 - ``targets`` — print the loaded target config and safety flags.
 - ``discover`` — run discovery adapters and enqueue matches.
+- ``search`` — search across every enabled adapter (no queue writes).
+- ``sources`` — list registered + enabled adapters.
 - ``queue`` — list queue rows filtered by status.
 - ``run-next`` — pick the next queued job and drive the agent against it.
 - ``serve`` — start the FastAPI service (REST + dashboard).
+- ``resume`` — ingest and inspect a resume:
+    * ``resume expand PATH`` — read a .pdf or .txt, expand it (LLM if
+      OPENAI_API_KEY is set, plain copy otherwise), write to
+      RESUME_EXPANDED_PATH, and print a short summary.
+    * ``resume show`` — print stats about the currently loaded resume.
 - ``run-url`` — one-shot: drive the agent against a specific URL. Kept
   for backwards compatibility with the original entry point.
 """
@@ -162,6 +169,66 @@ async def _cmd_run_next(args: argparse.Namespace) -> None:
     )
 
 
+async def _cmd_resume(args: argparse.Namespace) -> None:
+    from services.resume_processor import expand_resume, extract_pdf_text
+
+    if args.action == "expand":
+        input_path = Path(args.path).expanduser().resolve()
+        if not input_path.exists():
+            # Plain print (not rich): keeps the message on one line even
+            # when redirected/captured, and stays out of the JSON payload
+            # emitted on the happy path.
+            print(f"{input_path} does not exist.", flush=True)
+            raise SystemExit(2)
+
+        output_path = Path(args.output).expanduser() if args.output else settings.resume_expanded_path
+        result_path = await expand_resume(input_path, output_path=output_path)
+        text = result_path.read_text(encoding="utf-8")
+        _print_resume_summary(text, result_path, source=str(input_path))
+        return
+
+    if args.action == "show":
+        path = settings.resume_expanded_path
+        if args.path:
+            path = Path(args.path).expanduser().resolve()
+        if not path.exists():
+            print(f"{path} does not exist.", flush=True)
+            raise SystemExit(2)
+        if path.suffix.lower() == ".pdf":
+            text = extract_pdf_text(path)
+        else:
+            text = path.read_text(encoding="utf-8")
+        _print_resume_summary(text, path)
+        return
+
+    # Should be unreachable because argparse enforces the choice.
+    raise SystemExit(f"unknown resume action: {args.action}")
+
+
+def _print_resume_summary(text: str, path: Path, source: str | None = None) -> None:
+    """Show token/char/skill stats plus a short head/tail preview."""
+
+    from scoring.skills import detect_seniority, extract_skills
+
+    words = text.split()
+    skills = extract_skills(text)
+    seniority = detect_seniority(text)
+    preview = text[:400].replace("\n", " ").strip()
+    if len(text) > 400:
+        preview += "…"
+
+    data = {
+        "source": source,
+        "path": str(path),
+        "chars": len(text),
+        "words": len(words),
+        "seniority_signal": seniority,
+        "detected_skills": skills.ordered[:20],
+        "preview": preview,
+    }
+    console.print_json(data={k: v for k, v in data.items() if v is not None})
+
+
 def _cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -224,6 +291,15 @@ def main() -> None:
     p_serve.add_argument("--host", default=settings.api_host)
     p_serve.add_argument("--port", type=int, default=settings.api_port)
 
+    p_resume = sub.add_parser("resume", help="Ingest and inspect a resume.")
+    resume_actions = p_resume.add_subparsers(dest="action", required=True)
+    p_expand = resume_actions.add_parser("expand", help="Extract text from a PDF or TXT, expand it, and save.")
+    p_expand.add_argument("path", help="Path to .pdf or .txt resume.")
+    p_expand.add_argument("--output", default=None, help="Override RESUME_EXPANDED_PATH for this run.")
+    p_show = resume_actions.add_parser("show", help="Print stats about the currently-loaded resume.")
+    p_show.add_argument("path", nargs="?", default=None,
+                        help="Optional path override; defaults to RESUME_EXPANDED_PATH.")
+
     p_url = sub.add_parser("run-url", help="Drive the agent against a specific URL (one-shot).")
     p_url.add_argument("--target-url", required=True)
     p_url.add_argument("--goal", default="Fill this job application using my profile.")
@@ -261,6 +337,9 @@ def main() -> None:
         return
     if args.cmd == "run-next":
         asyncio.run(_cmd_run_next(args))
+        return
+    if args.cmd == "resume":
+        asyncio.run(_cmd_resume(args))
         return
     if args.cmd == "serve":
         _cmd_serve(args)
