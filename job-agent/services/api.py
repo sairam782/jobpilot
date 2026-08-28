@@ -32,7 +32,7 @@ from rapidfuzz import fuzz
 
 from agent.router import TaskType, select_model
 from config.settings import settings
-from db.sqlite_memory import init_db
+from db.sqlite_memory import init_db, list_recent
 from discovery import registry as discovery_registry
 from discovery.base import SearchQuery
 from orchestrator import queue as queue_mod
@@ -392,6 +392,36 @@ async def rate_limit() -> dict[str, Any]:
 @app.get("/target-config")
 async def target_config() -> dict[str, Any]:
     return load_target_config()
+
+
+# ---------- Audit ---------------------------------------------------------
+
+
+@app.get("/audit/recent")
+async def audit_recent(limit: int = 50, url: str | None = None) -> dict[str, Any]:
+    """Return the most recent audit rows, newest first.
+
+    Query params:
+    - ``limit`` — 1..500 (clamped by the underlying helper).
+    - ``url``   — optional exact-match filter on the row's URL.
+    """
+
+    rows = list_recent(settings.database_path, limit=limit, url=url)
+    return {
+        "count": len(rows),
+        "filter_url": url,
+        "rows": [
+            {
+                "id": r.id,
+                "timestamp": r.timestamp,
+                "url": r.url,
+                "action": r.action,
+                "result": r.result,
+                "error_text": r.error_text,
+            }
+            for r in rows
+        ],
+    }
 
 
 # ---------- Dashboard ------------------------------------------------------
