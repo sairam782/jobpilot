@@ -226,10 +226,10 @@ async def process_next(
     if not job or job.id is None:
         return None
 
-    log.info(
-        "processing job",
-        extra={"job_id": job.id, "url": job.url, "score": job.score, "dry_run": is_dry},
-    )
+    # Stamp job_id / url / score on every log line emitted below so any
+    # single record in the JSON log stream can be filtered back to its run.
+    job_log = log.bind(job_id=job.id, url=job.url, score=job.score, dry_run=is_dry)
+    job_log.info("processing job")
 
     goal = (
         f"Fill the application for '{job.title}' at "
@@ -239,8 +239,8 @@ async def process_next(
     run = runner or _default_runner
     try:
         result = await run(job.url, goal, is_dry)
-    except Exception as exc:
-        log.exception("job runner errored", extra={"job_id": job.id})
+    except Exception as exc:  # noqa: BLE001 - isolate runner failures per-job
+        job_log.exception("job runner errored", extra={"outcome": "failed"})
         row = queue.mark_failed(dbp, job.id, error=f"{type(exc).__name__}: {exc}")
         return RunReport(
             job_id=row.id or 0,
@@ -254,6 +254,7 @@ async def process_next(
     filled, answers, audit, validation_status, error_text, done = _extract_result(result)
 
     if error_text and not done:
+        job_log.warning("agent reported error", extra={"outcome": "failed", "error": error_text[:200]})
         row = queue.mark_failed(dbp, job.id, error=error_text)
         return RunReport(
             job_id=row.id or 0,
@@ -265,6 +266,7 @@ async def process_next(
         )
 
     if validation_status == "blocked":
+        job_log.info("agent stopped: blocked", extra={"outcome": "skipped"})
         row = queue.mark_skipped(dbp, job.id, note="agent stopped: blocked")
         return RunReport(
             job_id=row.id or 0,
@@ -276,6 +278,10 @@ async def process_next(
         )
 
     if needs_approval or is_dry:
+        job_log.info(
+            "ready for human approval",
+            extra={"outcome": "needs_approval", "filled_count": len(filled)},
+        )
         row = queue.mark_needs_approval(
             dbp, job.id,
             filled_fields=filled, answer_previews=answers, audit_entries=audit,
@@ -289,6 +295,7 @@ async def process_next(
             audit_entries=audit,
         )
 
+    job_log.info("submitted", extra={"outcome": "submitted"})
     row = queue.mark_submitted(dbp, job.id)
     return RunReport(
         job_id=row.id or 0,
