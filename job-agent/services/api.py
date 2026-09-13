@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
@@ -76,6 +77,23 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="JobPilot", version="1.0.0", lifespan=_lifespan)
+
+
+# ---------- CORS -----------------------------------------------------------
+# The bundled dashboard runs on the same origin as the API and doesn't need
+# CORS. The Next.js dashboard under ``web/`` deploys to Vercel and DOES —
+# it lives on a different origin. Configure the allowed origins via
+# ``CORS_ALLOW_ORIGINS`` (comma-separated). Leaving the setting empty
+# preserves the historical same-origin-only posture.
+if settings.cors_allow_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origin_list,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+        max_age=600,
+    )
 
 
 # ---------- Health & config ------------------------------------------------
