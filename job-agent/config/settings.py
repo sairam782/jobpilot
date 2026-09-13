@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
     log_format: str = Field(default="json", alias="LOG_FORMAT")  # "json" or "console"
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    # Comma-separated origins allowed by CORS. Use ``*`` only for local
+    # experiments; production Vercel deployments should name the exact URL:
+    #   CORS_ALLOW_ORIGINS=https://jobpilot-web.vercel.app
+    cors_allow_origins: str = Field(default="", alias="CORS_ALLOW_ORIGINS")
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
     # ---------- Discovery ----------
     discovery_http_timeout: float = Field(default=15.0, alias="DISCOVERY_HTTP_TIMEOUT")
